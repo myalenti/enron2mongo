@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO,
                     format='(%(threadName)4s) %(levelname)s %(message)s',
                     )
 
-xmlSource = "/enron/edrm-enron-v2/zl_motley-m_763_IZGB_000.xml"
+xmlSource = sys.argv[1]
 xmlFile = open(xmlSource)
 xmldict = xmltodict.parse(xmlFile)
 xmldict_root = xmldict["Root"]["Batch"]["Documents"]["Document"]
@@ -51,9 +51,15 @@ def pretty(messyDict):
 def generateMongoDoc(nativeDict, increment):
     mongoDoc = OrderedDict()
     mongoDoc["DocId"] = nativeDict[increment]["@DocID"]
-    #print pretty(mongoDoc)
+    mongoDoc["From"] = extractNamedTag(nativeDict[increment]["Tags"]["Tag"],"#From")
+    print pretty(mongoDoc)
     #print mongoDoc
     return mongoDoc
+
+def extractNamedTag(arrayOfDocs, tagName):
+    for doc in arrayOfDocs:
+        if doc["@TagName"] == tagName:
+            return doc["@TagValue"]
 
 def batchSaveToDB(requestList):
     results = col.bulk_write(requestList, ordered=True)
@@ -72,18 +78,32 @@ while position != dictLength:
     if (dictLength - position)  > batchSize:
         requestList = []
         for i in xrange(batchSize):
+            if xmldict_root[position].has_key('Locations') == False:
+                print "No Location key found"
+                position = position + 1
+                continue
+            if "Calendar" in xmldict_root[position]["Locations"]["Location"]["LocationURI"]:
+                print "found Calendar entry"
+                position = position + 1
+                continue
             requestList.append(InsertOne(generateMongoDoc(xmldict_root, position))) 
             position = position + 1
-        #col.bulk_write(requestList, ordered=ord)
-        results = batchSaveToDB(requestList)
-        #print requestList
-        #print " ****************"
-        print results.bulk_api_result
-        print results.acknowledged
+        if len(requestList) > 0 :  
+            results = batchSaveToDB(requestList)
+            print results.bulk_api_result
+            print results.acknowledged
         requestList = []
     else:
         requestList = []
         for i in xrange(dictLength - position):
+            if xmldict_root[position].has_key('Locations') == False:
+                print "No Location key found"
+                position = position + 1
+                continue
+            if "Calendar" in xmldict_root[position]["Locations"]["Location"]["LocationURI"]:
+                print "found Calendar entry"
+                position = position + 1
+                continue
             requestList.append(InsertOne(generateMongoDoc(xmldict_root, position)))
             position = position + 1
         results = batchSaveToDB(requestList)
@@ -93,8 +113,5 @@ while position != dictLength:
         print results.acknowledged
         requestList = []
             
+print pretty(xmldict_root[0])
         
-
-
-
-
