@@ -12,6 +12,7 @@ import json
 import xmltodict
 from collections import OrderedDict
 from pymongo import MongoClient, InsertOne
+from pymongo.errors import PyMongoError
 import gridfs
 
 logging.basicConfig(level=logging.INFO,format='(%(threadName)4s) %(levelname)s %(message)s',)
@@ -20,7 +21,7 @@ logging.basicConfig(level=logging.INFO,format='(%(threadName)4s) %(levelname)s %
 sourceDir = "/enron/edrm-enron-v2"
 
 #Global Variable - Some to become getops parameters
-batchSize = 10 # To become a cmd line parameter
+batchSize = 100 # To become a cmd line parameter
 retries = 5
 target = 'myalenti-cloud-demo-0.yalenti-demo.8839.mongodbdns.com' #Needs parameterizing
 port = 27017 #Needs parameterizing
@@ -88,6 +89,7 @@ for opt, arg in opts:
         exit(2)
 
 jobs = []
+startTime = time.time()
 
 
 logging.info("Initial Global Var information")
@@ -99,6 +101,7 @@ logging.info("Database: %s" % database_name)
 logging.info("Collection: %s" % collection_name)
 logging.info("SourceDir: %s" % sourceDir)
 logging.info("SourceFile: %s" % xmlSource)
+logging.info("Start Time: %s" % time.ctime(startTime))
 
 
 #Full path to the uncompressed XML source file from enron edrm v2 dataset
@@ -174,27 +177,29 @@ db = conn[database_name]
 col = db[collection_name]
 grid = gridfs.GridFS(db)
 
-print dictLength
-#print pretty(xmldict["Root"]["Batch"]["Documents"]["Document"][0] )
-
-
 while position != dictLength:
     if (dictLength - position)  > batchSize:
         requestList = []
         for i in xrange(batchSize):
             if xmldict_root[position].has_key('Locations') == False:
-                print "No Location key found"
+                logging.debug("No Location key found at position %d" % position)
                 position = position + 1
                 continue
             if "Calendar" in xmldict_root[position]["Locations"]["Location"]["LocationURI"]:
-                print "found Calendar entry"
+                logging.debug("Calendar entry found at position %d" % position)
                 position = position + 1
                 continue
             requestList.append(InsertOne(generateMongoDoc(position))) 
             position = position + 1
             #print pretty(xmldict_root[position])
+            logging.debug("Request List is : %s " % requestList)
         if len(requestList) > 0 :  
-            results = batchSaveToDB(requestList)
+            try:
+                results = batchSaveToDB(requestList)
+            except pymongo.errors.BulkWriteError as e:
+                print "Unexpected Error:" , sys.exc_info()[0]
+                print e.details
+                exit()
             print results.bulk_api_result
             print results.acknowledged
         requestList = []
@@ -202,21 +207,25 @@ while position != dictLength:
         requestList = []
         for i in xrange(dictLength - position):
             if xmldict_root[position].has_key('Locations') == False:
-                print "No Location key found"
+                logging.debug("No Location key found at position %d" % position)
                 position = position + 1
                 continue
             if "Calendar" in xmldict_root[position]["Locations"]["Location"]["LocationURI"]:
-                print "found Calendar entry"
+                logging.debug("Calendar entry found at position %d" % position)
                 position = position + 1
                 continue
             requestList.append(InsertOne(generateMongoDoc(position)))
             position = position + 1
         if len(requestList) > 0 :
-            results = batchSaveToDB(requestList)
+            try:
+                results = batchSaveToDB(requestList)
+            except pymongo.errors.BulkWriteError as e:
+                print "Unexpected Error:" , sys.exc_info()[0]
+                print e.details
             #print results
             #print requestList
-            print results.bulk_api_result
-            print results.acknowledged
+            #print results.bulk_api_result
+            #print results.acknowledged
         requestList = []
 print pretty(xmldict_root[0])
 position = 0
@@ -225,9 +234,17 @@ position = 0
 while position != dictLength:
     if xmldict_root[position]["@DocType"] == "File"  and  xmldict_root[position]["@MimeType"] != 'application/octet-stream':
         mongoDoc = buildMongoGfDoc(position)
-        print pretty(mongoDoc)
+        logging.debug("MongoDoc for Gridfs : %s " % mongoDoc)
+        #print pretty(mongoDoc)
         mongoFile = open(mongoDoc["FilePath"])
-        gresults = grid.put(mongoFile, _id=mongoDoc["_id"], source=mongoDoc)
+        try:
+            gresults = grid.put(mongoFile, _id=mongoDoc["_id"], source=mongoDoc)
+        #except (gridfs.errors.CorruptGridFile, gridfs.errors.FileExists, gridfs.errors.GridFSError, gridfs.errors.NoFile) as e:
+        except PyMongoError as e:
+            logging.info("gridfs shit the bed: %s" % str(e))
+            #print "this message: " + str(e)
     position = position + 1 
     
-
+stopTime=time.time()
+logging.info("Stop Time: %s" % time.ctime(stopTime))
+logging.info("Total Time elapsed : %d secs" % (stopTime - startTime))
