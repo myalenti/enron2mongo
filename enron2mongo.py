@@ -14,42 +14,105 @@ from collections import OrderedDict
 from pymongo import MongoClient, InsertOne
 import gridfs
 
-logging.basicConfig(level=logging.INFO,
-                    format='(%(threadName)4s) %(levelname)s %(message)s',
-                    )
-#Full path to the uncompressed XML source file from enron edrm v2 dataset
-#Open it as a file object and then generate a dict from xml using xmltodict
-#Finally grab a handle to the document objects for easier referencing
-xmlSource = sys.argv[1]
-xmlFile = open(xmlSource)
-xmldict = xmltodict.parse(xmlFile)
-xmldict_root = xmldict["Root"]["Batch"]["Documents"]["Document"]
+logging.basicConfig(level=logging.INFO,format='(%(threadName)4s) %(levelname)s %(message)s',)
 
 #Maintain the source dir for use with file objects - This needs to become a parameter with getops
 sourceDir = "/enron/edrm-enron-v2"
 
 #Global Variable - Some to become getops parameters
 batchSize = 10 # To become a cmd line parameter
-global retries
 retries = 5
-global target
 target = 'myalenti-cloud-demo-0.yalenti-demo.8839.mongodbdns.com' #Needs parameterizing
-global port
 port = 27017 #Needs parameterizing
-global repSet
 repSet = "myalenti-rpl1" #Needs parameterizing
-global username
 username = sys.argv[2] #Needs parameterizing
-global password
 password = sys.argv[3] #Needs parameterizing
 position = 0 #Position in dictionary
 database_name = "enron" #Needs Parameterizing
 collection_name = "email" #Needs Parameterizing
+
+
+def usage():
+    print "Enron database loader from xml source"
+    print "     -u: username for datbase access"
+    print "     -p: password for datbase access"
+    print "     -t: target database replica set member"
+    print "     -r: target database replica set name"
+    print "     -P: target database Port"
+    print "     -d: target database name"
+    print "     -c: target collection name"
+    print "     -s: source directory for enron source data"
+    print "     --level: INFO or DEBUG"
+    print "     -h: print this help output"
+
+try:
+    opts, args = getopt.getopt(sys.argv[1:], "f:u:p:t:r:P:d:c:s:", ["level=","port="])
+    logging.debug("Operation list length is : %d " % len(opts))
+except getopt.GetoptError:
+    print "You provided invalid command line switches."
+    usage()
+    exit(2)
+
+for opt, arg in opts:
+    if opt in ("-u"):
+        username=arg
+    elif opt in ("-p"):
+        password=arg
+    elif opt in ("-t"):
+        target=arg
+    elif opt in ("-r"):
+        repSet=arg
+    elif opt in ("-P"):
+        port=arg
+    elif opt in ("-d"):
+        database_name=arg
+    elif opt in ("-c"):
+        collection_name=arg
+    elif opt in ("-s"):
+        sourceDir=arg
+    elif opt in ("-f"):
+        xmlSource=arg
+    elif opt in ("--level"):
+        print "Log Level set to : ", arg
+        arg = arg.upper() 
+        if not arg in ("DEBUG", "WARN", "INFO"):
+            print "Invalid logging level specified"
+            exit(2)
+        else:
+            logging.getLogger().setLevel(arg)
+    elif opt in ("-h"):
+        usage()
+        exit()
+    else:
+        usage()
+        exit(2)
+
 jobs = []
 
-dictLength = len(xmldict_root)
 
 logging.info("Initial Global Var information")
+logging.info("Target: %s" % target)
+logging.info("RepSet: %s" % repSet)
+logging.info("Port: %d" % port)
+logging.info("Username: %s" % username)
+logging.info("Database: %s" % database_name)
+logging.info("Collection: %s" % collection_name)
+logging.info("SourceDir: %s" % sourceDir)
+logging.info("SourceFile: %s" % xmlSource)
+
+
+#Full path to the uncompressed XML source file from enron edrm v2 dataset
+#Open it as a file object and then generate a dict from xml using xmltodict
+#Finally grab a handle to the document objects for easier referencing
+#xmlSource = sys.argv[1]
+xmlFile = open(xmlSource)
+xmldict = xmltodict.parse(xmlFile)
+xmldict_root = xmldict["Root"]["Batch"]["Documents"]["Document"]
+dictLength = len(xmldict_root)
+logging.info("Doc Count: %d" % dictLength)
+
+#Maintain the source dir for use with file objects - This needs to become a parameter with getops
+sourceDir = "/enron/edrm-enron-v2"
 
 def mongoConnector():
     connection = MongoClient(target,port,replicaSet=repSet,serverSelectionTimeoutMS=5000,connectTimeoutMS=5000)
@@ -59,18 +122,18 @@ def mongoConnector():
 def pretty(messyDict):
     return json.dumps(messyDict,sort_keys=True,indent=4, separators=(',', ': '))
 
-def generateMongoDoc(nativeDict, increment):
+def generateMongoDoc(increment):
     mongoDoc = OrderedDict()
-    mongoDoc["_id"] = nativeDict[increment]["@DocID"]
-    mongoDoc["From"] = extractNamedTag(nativeDict[increment]["Tags"]["Tag"],"#From")
-    mongoDoc["To"] = extractNamedTag(nativeDict[increment]["Tags"]["Tag"],"#To")
-    mongoDoc["Date"] = extractNamedTag(nativeDict[increment]["Tags"]["Tag"],"#DateSent")
-    mongoDoc["Attachment"] = extractNamedTag(nativeDict[increment]["Tags"]["Tag"],"#HasAttachments")
-    mongoDoc["AttachmentName"] = extractNamedTag(nativeDict[increment]["Tags"]["Tag"],"#AttachmentNames")
-    mongoDoc["AttachmentCount"] = extractNamedTag(nativeDict[increment]["Tags"]["Tag"],"#AttachmentCount")
-    mongoDoc["Subject"] = extractNamedTag(nativeDict[increment]["Tags"]["Tag"],"#Subject")
-    mongoDoc["CC"] = extractNamedTag(nativeDict[increment]["Tags"]["Tag"],"#CC")
-    mongoDoc["Body"] = extractEmailBody(nativeDict[increment]["Files"]["File"])
+    mongoDoc["_id"] = xmldict_root[increment]["@DocID"]
+    mongoDoc["From"] = extractNamedTag(xmldict_root[increment]["Tags"]["Tag"],"#From")
+    mongoDoc["To"] = extractNamedTag(xmldict_root[increment]["Tags"]["Tag"],"#To")
+    mongoDoc["Date"] = extractNamedTag(xmldict_root[increment]["Tags"]["Tag"],"#DateSent")
+    mongoDoc["Attachment"] = extractNamedTag(xmldict_root[increment]["Tags"]["Tag"],"#HasAttachments")
+    mongoDoc["AttachmentName"] = extractNamedTag(xmldict_root[increment]["Tags"]["Tag"],"#AttachmentNames")
+    mongoDoc["AttachmentCount"] = extractNamedTag(xmldict_root[increment]["Tags"]["Tag"],"#AttachmentCount")
+    mongoDoc["Subject"] = extractNamedTag(xmldict_root[increment]["Tags"]["Tag"],"#Subject")
+    mongoDoc["CC"] = extractNamedTag(xmldict_root[increment]["Tags"]["Tag"],"#CC")
+    mongoDoc["Body"] = extractEmailBody(xmldict_root[increment]["Files"]["File"])
 
     #print pretty(mongoDoc)
     #print mongoDoc
@@ -89,14 +152,14 @@ def extractEmailBody(arrayOfDocs):
             emailBody = email_file.read()
     return emailBody
 
-def buildMongoGfDoc(nativeDict):
+def buildMongoGfDoc(position):
     mongoDoc = OrderedDict()
-    mongoDoc["_id"] = nativeDict["@DocID"]
-    mongoDoc["FileName"] = extractNamedTag(nativeDict["Tags"]["Tag"], "#FileName")
-    mongoDoc["Size"] = extractNamedTag(nativeDict["Tags"]["Tag"], "#FileSize")
-    mongoDoc["DateCreated"] = extractNamedTag(nativeDict["Tags"]["Tag"], "#DateCreated")
-    mongoDoc["DateModified"] = extractNamedTag(nativeDict["Tags"]["Tag"], "#DateModified")
-    for i in nativeDict["Files"]["File"]:
+    mongoDoc["_id"] = xmldict_root[position]["@DocID"]
+    mongoDoc["FileName"] = extractNamedTag(xmldict_root[position]["Tags"]["Tag"], "#FileName")
+    mongoDoc["Size"] = extractNamedTag(xmldict_root[position]["Tags"]["Tag"], "#FileSize")
+    mongoDoc["DateCreated"] = extractNamedTag(xmldict_root[position]["Tags"]["Tag"], "#DateCreated")
+    mongoDoc["DateModified"] = extractNamedTag(xmldict_root[position]["Tags"]["Tag"], "#DateModified")
+    for i in xmldict_root[position]["Files"]["File"]:
         if i["@FileType"] == "Native":
             mongoDoc["FilePath"] = sourceDir + "/" + i["ExternalFile"]["@FilePath"] + "/" + i["ExternalFile"]["@FileName"]
             return mongoDoc
@@ -127,7 +190,7 @@ while position != dictLength:
                 print "found Calendar entry"
                 position = position + 1
                 continue
-            requestList.append(InsertOne(generateMongoDoc(xmldict_root, position))) 
+            requestList.append(InsertOne(generateMongoDoc(position))) 
             position = position + 1
             #print pretty(xmldict_root[position])
         if len(requestList) > 0 :  
@@ -146,7 +209,7 @@ while position != dictLength:
                 print "found Calendar entry"
                 position = position + 1
                 continue
-            requestList.append(InsertOne(generateMongoDoc(xmldict_root, position)))
+            requestList.append(InsertOne(generateMongoDoc(position)))
             position = position + 1
         if len(requestList) > 0 :
             results = batchSaveToDB(requestList)
@@ -161,7 +224,7 @@ position = 0
 #Iterate the dictionary one more time to pull out all the attachments
 while position != dictLength:
     if xmldict_root[position]["@DocType"] == "File"  and  xmldict_root[position]["@MimeType"] != 'application/octet-stream':
-        mongoDoc = buildMongoGfDoc(xmldict_root[position])
+        mongoDoc = buildMongoGfDoc(position)
         print pretty(mongoDoc)
         mongoFile = open(mongoDoc["FilePath"])
         gresults = grid.put(mongoFile, _id=mongoDoc["_id"], source=mongoDoc)
