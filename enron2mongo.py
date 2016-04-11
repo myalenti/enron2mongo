@@ -81,6 +81,18 @@ def extractEmailBody(arrayOfDocs):
             emailBody = email_file.read()
     return emailBody
 
+def buildMongoGfDoc(nativeDict):
+    mongoDoc = OrderedDict()
+    mongoDoc["_id"] = nativeDict["@DocID"]
+    mongoDoc["FileName"] = extractNamedTag(nativeDict["Tags"]["Tag"], "#FileName")
+    mongoDoc["Size"] = extractNamedTag(nativeDict["Tags"]["Tag"], "#FileSize")
+    mongoDoc["DateCreated"] = extractNamedTag(nativeDict["Tags"]["Tag"], "#DateCreated")
+    mongoDoc["DateModified"] = extractNamedTag(nativeDict["Tags"]["Tag"], "#DateModified")
+    for i in nativeDict["Files"]["File"]:
+        if i["@FileType"] == "Native":
+            mongoDoc["FilePath"] = sourceDir + "/" + i["ExternalFile"]["@FilePath"] + "/" + i["ExternalFile"]["@FileName"]
+            return mongoDoc
+
 def batchSaveToDB(requestList):
     results = col.bulk_write(requestList, ordered=True)
     
@@ -109,6 +121,7 @@ while position != dictLength:
                 continue
             requestList.append(InsertOne(generateMongoDoc(xmldict_root, position))) 
             position = position + 1
+            #print pretty(xmldict_root[position])
         if len(requestList) > 0 :  
             results = batchSaveToDB(requestList)
             print results.bulk_api_result
@@ -135,10 +148,14 @@ while position != dictLength:
             print results.acknowledged
         requestList = []
 print pretty(xmldict_root[0])
-'''            
 position = 0
+
 while position != dictLength:
-        
-   if xmldict_root[position]["DocType"] == "File" :
-        filePath =  sourceDir + "/" + xmldict_root[position]["Tag"]["Tags"]
-'''
+    if xmldict_root[position]["@DocType"] == "File"  and  xmldict_root[position]["@MimeType"] != 'application/octet-stream':
+        mongoDoc = buildMongoGfDoc(xmldict_root[position])
+        print pretty(mongoDoc)
+        mongoFile = open(mongoDoc["FilePath"])
+        gresults = grid.put(mongoFile, _id=mongoDoc["_id"], source=mongoDoc)
+    position = position + 1 
+    
+
