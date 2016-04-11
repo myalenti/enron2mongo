@@ -17,31 +17,39 @@ import gridfs
 logging.basicConfig(level=logging.INFO,
                     format='(%(threadName)4s) %(levelname)s %(message)s',
                     )
-
+#Full path to the uncompressed XML source file from enron edrm v2 dataset
+#Open it as a file object and then generate a dict from xml using xmltodict
+#Finally grab a handle to the document objects for easier referencing
 xmlSource = sys.argv[1]
 xmlFile = open(xmlSource)
 xmldict = xmltodict.parse(xmlFile)
 xmldict_root = xmldict["Root"]["Batch"]["Documents"]["Document"]
+
+#Maintain the source dir for use with file objects - This needs to become a parameter with getops
 sourceDir = "/enron/edrm-enron-v2"
-batchSize = 10
+
+#Global Variable - Some to become getops parameters
+batchSize = 10 # To become a cmd line parameter
 global retries
 retries = 5
 global target
-target = 'myalenti-cloud-demo-0.yalenti-demo.8839.mongodbdns.com'
+target = 'myalenti-cloud-demo-0.yalenti-demo.8839.mongodbdns.com' #Needs parameterizing
 global port
-port = 27017
+port = 27017 #Needs parameterizing
 global repSet
-repSet = "myalenti-rpl1"
+repSet = "myalenti-rpl1" #Needs parameterizing
 global username
-username = sys.argv[2]
+username = sys.argv[2] #Needs parameterizing
 global password
-password = sys.argv[3]
-position = 0
-database_name = "enron"
-collection_name = "email"
+password = sys.argv[3] #Needs parameterizing
+position = 0 #Position in dictionary
+database_name = "enron" #Needs Parameterizing
+collection_name = "email" #Needs Parameterizing
 jobs = []
 
-dictLength = len(xmldict["Root"]["Batch"]["Documents"]["Document"])
+dictLength = len(xmldict_root)
+
+logging.info("Initial Global Var information")
 
 def mongoConnector():
     connection = MongoClient(target,port,replicaSet=repSet,serverSelectionTimeoutMS=5000,connectTimeoutMS=5000)
@@ -150,6 +158,7 @@ while position != dictLength:
 print pretty(xmldict_root[0])
 position = 0
 
+#Iterate the dictionary one more time to pull out all the attachments
 while position != dictLength:
     if xmldict_root[position]["@DocType"] == "File"  and  xmldict_root[position]["@MimeType"] != 'application/octet-stream':
         mongoDoc = buildMongoGfDoc(xmldict_root[position])
