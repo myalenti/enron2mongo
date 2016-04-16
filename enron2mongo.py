@@ -237,13 +237,21 @@ while position != dictLength:
         logging.debug("MongoDoc for Gridfs : %s " % mongoDoc)
         #print pretty(mongoDoc)
         mongoFile = open(mongoDoc["FilePath"])
+        while len( filter( lambda x: x.is_alive() , jobs)) >= 10:
+                logging.info("Process limit hit, sleeping")
+                time.sleep(1)
         try:
-            gresults = grid.put(mongoFile, _id=mongoDoc["_id"], source=mongoDoc)
+            p = multiprocessing.Process(target=grid.put, args=(mongoFile, _id=mongoDoc["_id"], source=mongoDoc,))
+            jobs.append(p)
+            p.start()
+            #gresults = grid.put(mongoFile, _id=mongoDoc["_id"], source=mongoDoc)
         #except (gridfs.errors.CorruptGridFile, gridfs.errors.FileExists, gridfs.errors.GridFSError, gridfs.errors.NoFile) as e:
         except PyMongoError as e:
             logging.info("gridfs shit the bed: %s" % str(e))
             #print "this message: " + str(e)
     position = position + 1 
+for i in jobs
+    i.join()
     
 stopTime=time.time()
 logging.info("Stop Time: %s" % time.ctime(stopTime))
